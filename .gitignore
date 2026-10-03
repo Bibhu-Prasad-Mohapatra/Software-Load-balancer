@@ -1,0 +1,11 @@
+﻿build/
+logs/
+*.log
+.vscode/
+.idea/
+*.user
+*.suo
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
