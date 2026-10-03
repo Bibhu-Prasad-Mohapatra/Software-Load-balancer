@@ -20,6 +20,7 @@ set(LB_SOURCES
     src/main.cpp 
     src/routing/router.cpp
     src/health/health_manager.cpp
+    src/networking/epoll_server.cpp
 )
 add_executable(load_balancer ${LB_SOURCES})
 target_link_libraries(load_balancer pthread)

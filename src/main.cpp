@@ -2,12 +2,24 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <vector>
+#include <csignal>
+#include <thread>
 #include "../include/common/config.hpp"
 #include "../include/routing/router.hpp"
 #include "../include/health/health_manager.hpp"
+#include "../include/networking/epoll_server.hpp"
 
-// Reusing parser from M4
+EpollServer* global_server = nullptr;
+HealthManager* global_health = nullptr;
+
+void signal_handler(int signum) {
+    std::cout << "\n[INFO] SIGINT received. Shutting down gracefully...\n";
+    if (global_server) global_server->stop();
+    if (global_health) global_health->stop();
+    std::cout << "[INFO] Cleanup complete. Exiting.\n";
+    exit(0);
+}
+
 LoadBalancerConfig parse_config(const std::string& config_path) {
     LoadBalancerConfig config;
     std::ifstream file(config_path);
@@ -40,6 +52,10 @@ LoadBalancerConfig parse_config(const std::string& config_path) {
 }
 
 int main(int argc, char* argv[]) {
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGPIPE, SIG_IGN); // Prevent crashing on broken pipes
+
     std::string config_file = "config/load_balancer.conf";
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--config" && i + 1 < argc) {
@@ -53,31 +69,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "[INFO] Configuration Loaded. Starting Health Manager...\n";
+    std::cout << "[INFO] Starting Software-Defined Load Balancer\n";
+    std::cout << "[INFO] Routing Algorithm: " << config.algorithm << "\n";
     
-    // Milestone 6: Start Health Manager in background
-    HealthManager health_manager(config);
-    health_manager.start();
-
-    // Milestone 5: Routing Test (Proxy/Epoll loop logic will be wired up in the next immediate step. 
-    // Right now, this proves our threads run safely without colliding.)
     Router router;
     
-    std::cout << "[INFO] Health Manager is pinging backends. Press Ctrl+C to terminate.\n";
-    
-    // Temporarily keeping the main thread alive to demonstrate health-checks firing.
-    // In the next step, we replace this sleep loop with the EpollServer run loop.
-    while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        
-        BackendServer* selected = router.get_next_backend(config);
-        if (selected) {
-            std::cout << "[DEBUG] Router selected backend: " << selected->id << "\n";
-        } else {
-            std::cout << "[WARN] Router found NO healthy backends!\n";
-        }
-    }
+    HealthManager health_manager(config);
+    global_health = &health_manager;
+    health_manager.start();
 
-    health_manager.stop();
+    EpollServer epoll_server(config, router);
+    global_server = &epoll_server;
+    
+    // This blocks and runs the epoll event loop until signal_handler triggers
+    epoll_server.start();
+
     return 0;
 }
